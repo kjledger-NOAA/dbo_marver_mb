@@ -1,0 +1,111 @@
+---
+title: "trying out Lulu"
+output: html_document
+date: "2025-06-09"
+---
+
+install lulu package using devtools
+```{r}
+#library(devtools)
+#install_github("tobiasgf/lulu")  
+```
+
+load packages
+```{r}
+library(tidyverse)
+library(lulu)
+```
+
+```{r}
+## Make Lulu matchlist =========================================================
+# Lulu needs a matchlist, which is basically all the ASVs blasted against
+# itself.
+
+# First create a directory to hold the blast database
+dir.create("/home/kimberly.ledger/dbo_marver_mb/ref")
+dir.create("/home/kimberly.ledger/dbo_marver_mb/ref/repseq_db")
+
+# Next, make a blast-formatted reference database from your ASVs. Here we are
+# using our representative sequences fasta that we exported earlier.
+
+## Run in terminal 
+#(base) [kimberly.ledger@akc0ss-vu-134 dbo_marver_mb]$ makeblastdb -in outputs/myasvs.fasta -dbtype nucl -out ref/repseq_db/repseq_db
+
+list.files("ref/repseq_db/")
+
+## Back in the terminal
+## Then blast the OTUs against the database
+#(base) [kimberly.ledger@akc0ss-vu-134 dbo_marver_mb]$ blastn -db ref/repseq_db/repseq_db -outfmt '6 qseqid sseqid pident' -out ref/match_list.txt -qcov_hsp_perc 80 -perc_identity 84 -query outputs/myasvs.fasta
+```
+
+read in the asv table and match list 
+```{r}
+asvtable <- read.csv("/home/kimberly.ledger/dbo_marver_mb/outputs/ASVtable.csv") 
+
+rownames(asvtable) <- asvtable$X
+
+asvtable <- asvtable[, -1]
+
+asvtable <- as.data.frame(t(asvtable))
+
+#asvtable$asv_id <- rownames(asvtable)
+
+#asvtable <- asvtable %>%
+#  select(asv_id, everything())
+
+matchlist <- read.table("/home/kimberly.ledger/dbo_marver_mb/ref/match_list.txt", header=FALSE,as.is=TRUE, stringsAsFactors=FALSE)
+```
+
+Run Lulu
+```{r}
+curated_result_98 <- lulu(asvtable, matchlist, minimum_ratio_type = "min", minimum_ratio = 1, minimum_match = 98, minimum_relative_cooccurence = 0.95)
+```
+
+
+```{r}
+# look at the curated table
+curated_result_98$curated_table
+
+# look at the original table
+curated_result_98$original_table
+
+# number of asvs retained 
+curated_result_98$curated_count
+
+# number of asvs discarded 
+curated_result_98$discarded_count
+
+# all orginal asvs with their parent or merged assignment 
+curated_result_98$otu_map
+```
+
+let me compare the mapped assignments using the taxonomic output from the full asv dataset 
+```{r}
+map <- curated_result_98$otu_map
+map$ASV <- rownames(map)
+
+taxon_df_collapsed <- read.csv("/home/kimberly.ledger/dbo_marver_mb/outputs/taxonomy_20250609_collapsed.csv") %>% 
+  rename(ASV = qseqid) %>%
+  select(ASV, taxon)
+
+join_98 <- map %>%
+  left_join(taxon_df_collapsed, by = "ASV") %>%
+  rename(ASV_taxon = taxon) %>%
+  left_join(taxon_df_collapsed, by = c("parent_id" = "ASV")) %>%
+  rename(parent_taxon = taxon)
+
+merged <- join_98 %>%
+  filter(curated == "merged")
+
+merged_matches <- merged %>%
+  filter(ASV_taxon == parent_taxon)
+
+merged_mismatches <- merged %>%
+  filter(ASV_taxon != parent_taxon)
+```
+
+```{r}
+write.csv(curated_result_98$curated_table, "/home/kimberly.ledger/dbo_marver_mb/ref/asvtable_lulu98.csv")
+write.csv(curated_result_98$otu_map, "/home/kimberly.ledger/dbo_marver_mb/ref/asvmap_lulu98.csv")
+```
+
