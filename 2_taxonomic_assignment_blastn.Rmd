@@ -84,7 +84,6 @@ nf_single_spp_seqs <- not_Actinopteri %>%
 ### remove the single-species seqs from the dataframe and then rank the hits by % identity for the remaining seqs
 ```{r}
 nf_seq_id_diff <- not_Actinopteri %>%
-  filter(perc_id > 97) %>%
   anti_join(., nf_single_spp_seqs) %>%  ## comment out this line if there are no single species ASVs
   select(-length) %>%
   group_by(qseqid, species, genus, family, order, class, phylum, kingdom) %>%
@@ -112,7 +111,7 @@ nf_match_99 <- nf_seq_id_diff %>%
   unique()
 
 nf_match_lessthan99<- nf_seq_id_diff %>%
-  filter(top_perc > 99) %>%
+  filter(top_perc < 99) %>%
   select(qseqid) %>%
   unique()
 ```
@@ -531,7 +530,9 @@ taxon_df_collapsed <- taxon_df_all %>%
   mutate(species = ifelse(taxonomic_level == "family", NA, species),
          genus = ifelse(taxonomic_level == "family", NA, genus),
          species = ifelse(taxonomic_level == "genus", NA, species),
-         family = ifelse(taxonomic_level == "order", NA, family)) %>%
+         family = ifelse(taxonomic_level == "order", NA, family),
+         genus = ifelse(taxonomic_level == "order", NA, genus),
+         species = ifelse(taxonomic_level == "order", NA, species)) %>%
   select(qseqid, taxon, taxonomic_level, species, genus, family, order, class, phylum, kingdom) %>%
   unique()
 ```
