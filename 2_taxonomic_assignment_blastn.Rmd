@@ -18,12 +18,10 @@ rename <- dplyr::rename
 
 ## load output from taxonkit 
 - this is the fasta seqs from blastn using the ncbi nt database with 96% seq identity and 98% query coverage   
-
 ```{r load-output-from-taxonkit}
 taxonomy <-read.delim("/home/kimberly.ledger/dbo_marver_mb/outputs/blastn_taxlineage.txt", header = FALSE, na.strings=c(""," ","NA"))
 head(taxonomy)
 ```
-
 
 ## clean up the header a bit
 ```{r}
@@ -47,7 +45,7 @@ tax_df %>%
   nrow
 ```
 
-## reformat table 
+## reformat table and remove unknown assignments 
 ```{r}
 # formatting the taxonomy variables
 taxon_df <- tax_df %>%
@@ -83,7 +81,7 @@ nf_single_spp_seqs <- not_Actinopteri %>%
   filter(perc_id > 97)
 ```  
   
-## remove the single-species seqs from the dataframe and then rank the hits by % identity for the remaining seqs
+### remove the single-species seqs from the dataframe and then rank the hits by % identity for the remaining seqs
 ```{r}
 nf_seq_id_diff <- not_Actinopteri %>%
   filter(perc_id > 97) %>%
@@ -102,20 +100,58 @@ nf_seq_id_diff <- not_Actinopteri %>%
         arrange(diff)
 ```
 
-after manually looking through the assignments, removing Pusa sibirica and filtering by diff = 0 cleans up the assignments 
+Now you have the single best entry for each species for each sequence ranked and with the difference between the first and second ranked entries calculated.
+** if there is a sequence that is 99% match, then keep just the sequences within 0.5%  
+** if there is NOT a 99% match, keep the top 1% 
+
+### ASVs with 99% match or not 
 ```{r}
+nf_match_99 <- nf_seq_id_diff %>%
+  filter(top_perc >= 99) %>%
+  select(qseqid) %>%
+  unique()
+
+nf_match_lessthan99<- nf_seq_id_diff %>%
+  filter(top_perc > 99) %>%
+  select(qseqid) %>%
+  unique()
+```
+
+### filter based on percent identity 
+```{r}
+nf_match_99_to_remove_low_perc_hits <- nf_seq_id_diff %>%
+  ungroup() %>%
+  filter(qseqid %in% nf_match_99$qseqid) %>%
+  group_by(qseqid) %>%
+  filter(diff > 0.5)
+
+nf_match_lessthan99_to_remove_low_perc_hits <- nf_seq_id_diff %>%
+  ungroup() %>%
+  filter(qseqid %in% nf_match_lessthan99$qseqid) %>%
+  group_by(qseqid) %>%
+  filter(diff > 1)
+
+nf_to_remove_low_perc_hits <- nf_match_99_to_remove_low_perc_hits %>%
+  bind_rows(nf_match_lessthan99_to_remove_low_perc_hits)
+
 nf_keepers <- nf_seq_id_diff %>%
-  filter(diff == 0) %>%
+  anti_join(nf_to_remove_low_perc_hits)
+```
+
+after manually looking through the assignments and remove any marine mammal not in study area that will mess with the assignment level.  
+not worring about non-marine mammals, other marine species here. 
+```{r}
+nf_keepers_filtered <- nf_keepers %>%
   filter(!species == "Pusa sibirica")
 
-nf_singletons <- nf_keepers %>%
+nf_singletons <- nf_keepers_filtered %>%
   select(qseqid) %>%
   tally() %>%
   filter(n == 1)
 
 # these are the seqs that now have only a single match
 nf_singleton_df <- nf_singletons %>%
-  left_join(nf_keepers) %>%
+  left_join(nf_keepers_filtered) %>%
   select(-n) %>%
   bind_rows(nf_single_spp_seqs) %>% # combine the single spp data
   mutate(taxonomic_level = "species") %>%
@@ -123,7 +159,7 @@ nf_singleton_df <- nf_singletons %>%
 
 ## Genus-level matches
 # remove the singletons from the bigger df 
-nf_single_genus <- nf_keepers %>%
+nf_single_genus <- nf_keepers_filtered %>%
   anti_join(nf_singleton_df)%>% # at best, these should be genus-level matches
   group_by(qseqid, genus) %>%
   tally() %>%
@@ -132,12 +168,12 @@ nf_single_genus <- nf_keepers %>%
   tally() %>%
   filter(n == 1) %>% # seqs that match a single genus
   select(-n) %>%
-  left_join(., nf_keepers) %>%
+  left_join(., nf_keepers_filtered) %>%
   mutate(taxonomic_level = "genus") %>%
   mutate(taxon = genus)
 
 ## Family-level matches
-nf_single_family <- nf_keepers %>%
+nf_single_family <- nf_keepers_filtered %>%
   anti_join(nf_singleton_df)%>%
   anti_join(nf_single_genus) %>%
   group_by(qseqid, family) %>%
@@ -147,12 +183,12 @@ nf_single_family <- nf_keepers %>%
   tally() %>%
   filter(n == 1) %>% # seqs that match a single family
   select(-n) %>%
-  left_join(., nf_keepers) %>%
+  left_join(., nf_keepers_filtered) %>%
   mutate(taxonomic_level = "family") %>%
   mutate(taxon = family)
 ```
 
-## combine the non-fish assignments 
+### combine the non-fish assignments 
 ```{r}
 nf_single_spp <- nf_singleton_df %>%
   select(-perc_id, -length, -n_taxa) %>%
@@ -162,7 +198,7 @@ nf_single_spp <- nf_singleton_df %>%
 nf_taxon_df_filter <- bind_rows(nf_single_genus, nf_single_spp, nf_single_family)
 ```
 
-## now look at the fish and figure out what fish taxa are in/out of our range
+## now look at the fish and figure out what fish taxa are in/out of our range using fishbase
 ```{r}
 to_check_range <- taxon_df %>%
   filter(class == "Actinopteri") %>%
@@ -171,7 +207,7 @@ to_check_range <- taxon_df %>%
   unique()
 ```
 
-## check ranges for species using rfishbase 
+### check ranges for species using rfishbase 
 ```{r}
 #library(remotes)
 #remotes::install_github("ropensci/rfishbase")
@@ -217,7 +253,7 @@ range_na <- spp_range %>%
 
 When a valid name was not found, the presence of a species in the study area was checked using the GBIF database (https://www.gbif.org/).
 
-## some species do not have range info - manually determine if these species should be considered in range
+### some species do not have range info - manually determine if these species should be considered in range
 ```{r}
 spp_range <- spp_range %>%
   mutate(in_range = ifelse(Species == "Ammodytes japonicus", "no", in_range)) %>%
@@ -225,6 +261,10 @@ spp_range <- spp_range %>%
   mutate(in_range = ifelse(Species == "Sebastes cheni", "no", in_range)) %>%
   mutate(in_range = ifelse(Species == "Sebastiscus vibrantus", "no", in_range)) %>%
   mutate(in_range = ifelse(Species == "Icelus mororanis", "no", in_range))
+
+range_na <- spp_range %>%
+  filter(is.na(in_range))
+range_na
 ```
 
 - in addition to fishbase distributions, these citations may help: https://www.marinespecies.org/arms/aphia.php?p=taxdetails%26id=10194
@@ -263,7 +303,7 @@ taxon_df_renamed <- taxon_df %>%
          genus = ifelse(species == "Lycodopsis pacificus", "Lycodes", genus)) #
 ```
 
-## keep only the "in range" fish species in the taxon dataframe
+### keep only the "in range" fish species in the taxon dataframe
 ```{r}
 taxa_keepers <- c(in_range$Species)
 
@@ -271,8 +311,7 @@ taxon_df_reduced <- taxon_df_renamed %>%
   filter(species %in% taxa_keepers)
 ```
 
-
-## figure out what ASVs are unambiguously a single species
+### figure out what ASVs are unambiguously a single species
 ```{r}
 single_spp_seqs <- taxon_df_reduced %>% 
   group_by(qseqid) %>%
@@ -300,46 +339,44 @@ seq_id_diff <- taxon_df_reduced %>%
 ```
 
 Now you have the single best entry for each species for each sequence ranked and with the difference between the first and second ranked entries calculated.
-** if there is a sequence that is >98% match, then keep just the sequences within 0.5%  
-** if there is NOT a >98% match, keep the top 1% 
-
-** if there is a sequence that is a 100% match, then keep just the sequences within 0.5%  
-** if there is NOT a 100% match, keep the top 1% 
+** if there is a sequence that is >99 % match, then keep just the sequences within 0.5%  
+** if there is NOT >99% match, keep the top 1% 
 
 ## ASVs with 100% match 
 ```{r}
-match_100 <- seq_id_diff %>%
-  filter(top_perc == 100) %>%
+match_99 <- seq_id_diff %>%
+  filter(top_perc >= 99) %>%
   select(qseqid) %>%
   unique()
 
-match_lessthan100 <- seq_id_diff %>%
-  filter(top_perc != 100) %>%
+match_lessthan99 <- seq_id_diff %>%
+  filter(top_perc < 99) %>%
   select(qseqid) %>%
   unique()
 ```
 
 
-## Figure out which differences are **> 1%** and eliminate those first
+## filter based on percent identity 
 ```{r}
-# filter out any taxa that are >1% less matching identity than the top taxonomic hit for a given sequence
-match_100_to_remove_low_perc_hits <- seq_id_diff %>%
+match_99_to_remove_low_perc_hits <- seq_id_diff %>%
   ungroup() %>%
-  filter(qseqid %in% match_100$qseqid) %>%
+  filter(qseqid %in% match_99$qseqid) %>%
   group_by(qseqid) %>%
   filter(diff > 0.5)
 
-match_lessthan100_to_remove_low_perc_hits <- seq_id_diff %>%
+match_lessthan99_to_remove_low_perc_hits <- seq_id_diff %>%
   ungroup() %>%
-  filter(qseqid %in% match_lessthan100$qseqid) %>%
+  filter(qseqid %in% match_lessthan99$qseqid) %>%
   group_by(qseqid) %>%
   filter(diff > 1)
 
-to_remove_low_perc_hits <- match_100_to_remove_low_perc_hits %>%
-  bind_rows(match_lessthan100_to_remove_low_perc_hits)
+to_remove_low_perc_hits <- match_99_to_remove_low_perc_hits %>%
+  bind_rows(match_lessthan99_to_remove_low_perc_hits)
 
 keepers <- seq_id_diff %>%
   anti_join(to_remove_low_perc_hits)
+
+unique(keepers$species)
 ```
 
 
@@ -484,15 +521,6 @@ taxon_df_all <- bind_rows(nf_taxon_df_filter, taxon_df_filter)
 ```{r}
 removed <- taxon_df %>%
   filter(!qseqid %in% taxon_df_all$qseqid)
-```
-
-## indicate the removed asvs as unassigned 
-```{r}
-removed$taxon <- "unassigned"
-removed$order <- NA
-
-taxon_df_all <- taxon_df_all %>%
-  bind_rows(removed)
 ```
 
 ## Create output taxonomy data frames

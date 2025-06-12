@@ -1,5 +1,5 @@
 ---
-title: "Decontamination of MarVer Amplicons"
+title: "Additional processing and data summary of MarVer Amplicons"
 author: "Kimberly Ledger"
 output: html_document
 date: "2025-06-10"
@@ -43,33 +43,13 @@ asv_table$sample_ID <- gsub("\\.", "_", asv_table$sample_ID)
 ```
 
 
-load sample metadata
-```{r}
-metadata <- read.csv("/home/kimberly.ledger/dbo_marver_mb/DBO_2023_metadata.csv") %>%
-  rename(sample_ID = Sample_ID) %>%
-  mutate(across(where(is.character), ~ na_if(.x, "NA")))
-
-## _ were changed to - by illumina output
-#metadata$sample_ID <- gsub("-", "_", metadata$sample_ID) 
-```
-
-add column to the ASV table that labels the sample type
-```{r}
-asv_table_with_sample_type <- metadata %>%
-  dplyr::select(sample_ID, extraction_ID, sample_type) %>%
-  left_join(asv_table, by = "sample_ID") %>%
-  mutate(
-    across(where(is.numeric), ~ replace_na(.x, 0)),
-    across(where(is.character), ~ replace_na(.x, NA)))
-
-# make a variable for the first and last ASV column in the table
-asv_first <- which(colnames(asv_table_with_sample_type) == "ASV1")  #this is the first asv column in this dataframe
-asv_last <- ncol(asv_table_with_sample_type)
-```
-
 pivot table longer 
 ```{r}
-asv_table_long <- asv_table_with_sample_type %>%
+# make a variable for the first and last ASV column in the table
+asv_first <- which(colnames(asv_table) == "ASV1")  #this is the first asv column in this dataframe
+asv_last <- ncol(asv_table)
+
+asv_table_long <- asv_table %>%
   pivot_longer(cols = c(asv_first:asv_last), names_to = "ASV", values_to = "reads") %>%
   mutate(reads = as.numeric(reads)) %>%
   mutate(reads = ifelse(is.na(reads), 0, reads))
@@ -83,13 +63,61 @@ taxonomy <- read.csv("/home/kimberly.ledger/dbo_marver_mb/outputs/taxonomy_20250
   rename(ASV = qseqid)
 ```
 
+join
 ```{r}
-taxon_table <- asv_table_long %>%
+join_table <- asv_table_long %>%
   left_join(taxonomy, by = "ASV") %>%
-  group_by(sample_ID, extraction_ID, sample_type, taxon, taxonomic_level, species, genus, family, order, class, kingdom) %>%
-  summarize(reads = sum(reads)) %>%
   filter(!is.na(taxon)) %>%
   filter(reads > 0) 
+
+unique(join_table$taxon)
+
+join_table %>%
+  filter(class != "Actinopteri") %>%
+  ungroup() %>%
+  select(class, family, taxon) %>%
+  distinct(class, family, taxon)
+```
+
+remove the non-target species - non-marine mammals and birds
+- note: Acipenser (sturgeon) was used as the positive control - keeping it in the df for now
+```{r}
+non_target <- c("Homo sapiens", "Canis lupus", "Bos", "Sus scrofa", "Hominidae", "Phasianidae")
+
+join_table_filtered <- join_table %>%
+  filter(!taxon %in% non_target)
+```
+
+calculate the output read count, number of asvs, and number of taxa assigned per sample replicate 
+```{r}
+output_summary <- join_table_filtered %>%
+  group_by(sample_ID) %>%
+  summarize(output_read_count = sum(reads),
+            output_asv_count = n_distinct(ASV),
+            output_num_tax_assigned = n_distinct(taxon))
+```
+
+join to full sampleID list to fill in the samples with no reads 
+```{r}
+sample_list <- read.csv("/home/kimberly.ledger/dbo_marver_mb/outputs/ASVtable.csv") %>%
+  select(X) %>%
+  mutate(sample_ID = gsub("-", "_", X)) %>%
+  select(sample_ID)
+
+output_summary_full <- sample_list %>%
+  left_join(output_summary) %>%
+  mutate(across(everything(), ~replace_na(., 0)))
+```
+
+```{r}
+write.csv(output_summary_full, "/home/kimberly.ledger/dbo_marver_mb/outputs/output_read_summary.csv")
+```
+
+output a taxon table 
+```{r}
+taxon_table <- join_table_filtered %>%
+  group_by(sample_ID, taxon, taxonomic_level, species, genus, family, order, class, kingdom) %>%
+  summarize(reads = sum(reads))
 ```
 
 quick summary
@@ -99,75 +127,6 @@ summary_tb <- taxon_table %>%
   group_by(taxon, taxonomic_level, species, genus, family, order, class) %>%
   summarize(total_reads = sum(reads)) %>% 
   arrange(desc(total_reads))
-```
-
-### some visuals
-
-controls
-```{r}
-taxon_table %>%
-  filter(reads > 0) %>%
-  filter(sample_type != "sample") %>%
-  ggplot(aes(x=sample_ID, y=reads, fill=taxon)) +
-  geom_bar(stat = "identity") + 
-    theme_bw() +
-  facet_wrap(~sample_type, scales = "free") +
-  labs(
-    y = "number of sequencing reads",
-    x = "sample ID",
-    title = "taxon reads in controls") + 
-  theme(
-    axis.text.x = element_text(angle = 90, hjust = 0.95),
-    legend.text = element_text(size = 8),
-    legend.key.size = unit(0.3, "cm"),
-    legend.position = "right",
-    #legend.position = "none",
-    legend.title = element_blank()
-  )
-```
-
-```{r}
-taxon_table %>%
-  filter(reads > 0) %>%
-  filter(sample_type == "sample") %>%
-  ggplot(aes(x=sample_ID, y=reads, fill=taxon)) +
-  geom_bar(stat = "identity") + 
-    theme_bw() +
-  labs(
-    y = "number of sequencing reads",
-    x = "sample ID",
-    title = "taxon reads in field samples") + 
-  theme(
-    axis.text.x = element_text(angle = 90, hjust = 0.95),
-    legend.text = element_text(size = 8),
-    legend.key.size = unit(0.3, "cm"),
-    #legend.position = "right",
-    legend.position = "none",
-    legend.title = element_blank()
-  )
-```
-
-```{r}
-sample_summary <- taxon_table %>%
-  filter(sample_type == "sample") %>%
-  select(taxon:class, reads) %>% 
-  group_by(taxon, taxonomic_level, species, genus, family, order, class) %>%
-  summarize(total_reads = sum(reads)) %>% 
-  arrange(desc(total_reads))
-```
-
-look closer at marine mammal detections 
-```{r}
-taxon_table %>%
-  filter(sample_type == "sample") %>%
-  filter(class == "Mammalia") %>%
-  select(taxon:class, reads) %>%
-  filter(!taxon %in% c("Homo sapiens", "Canis lupus", "Bos", "Sus scrofa")) %>%
-  group_by(taxon) %>%
-  summarize(n_detection_pcr = n(),
-            n_detection_bottle = n_distinct(extraction_ID),
-            n_reads = sum(reads)) %>%
-  arrange(desc(n_detection_pcr))
 ```
 
 output taxon table 

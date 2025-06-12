@@ -48,11 +48,6 @@ asvtable <- asvtable[, -1]
 
 asvtable <- as.data.frame(t(asvtable))
 
-#asvtable$asv_id <- rownames(asvtable)
-
-#asvtable <- asvtable %>%
-#  select(asv_id, everything())
-
 matchlist <- read.table("/home/kimberly.ledger/dbo_marver_mb/ref/match_list.txt", header=FALSE,as.is=TRUE, stringsAsFactors=FALSE)
 ```
 
