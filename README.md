@@ -1,49 +1,46 @@
 # dbo_marver_mb
 
-12S MarVer1 metabarcoding analysis of eDNA samples from the Northern Bering Sea/Chukchi Sea DBO Station 
+12S MarVer1 metabarcoding analysis of eDNA samples from the Northern Bering Sea/Chukchi Sea DBO Stations 
 
 ## 1. the data 
 
 MarVer1 metabarcoding reads from eDNA samples collected at DBO stations/moorings in the NBS and Chukchi Sea
-- SKQ2023 - Sept 2023 
+- SKQ2023 - Sept 2023 - MiSeq run date: 20250423
+- SKQ2024 - 2024 - MiSeq run date: 20260629
 
-## 2. preprocessing 
-
-### uploaded raw fastq files to eDNA VM 
-AKCJM146-KL22:~ kimberly.ledger$ scp Documents/20250423_DBO23_marver/* kimberly.ledger@161.55.97.134:/genetics/edna/rawdata/20250423_DBO23_marver
-
-### trim reads using cutadapt v4.2
-* if cutadapt is not already installed: (conda create -n cutadaptenv cutadapt)
-* activate enivronment: (conda activate cutadaptenv) 
-
-MarVer sequence 
+MarVer primer sequences 
 MarVer1_F: CGTGCCAGCCACCGCG
 MarVer1_R: GGGTATCTAATCCYAGTTTG
 
-set DATA= to the directory with the rawdata files:   
-DATA=/genetics/edna/rawdata/20250423_DBO23_marver
+## 2. preprocessing 
 
-below, the first set of () creates an array, containing n elements of the desired trimmed and unique names:   
-NAMELIST=$(ls ${DATA} | sed 's/e*_L001.*//' | uniq)
-echo "${NAMELIST}"
+### SKQ2023: processed on eDNA VM
+### SKQ2024: processed locally 
 
-* make folder for trimmed reads: (mkdir trimmed)
+Step 1. cutadapt: identify and remove primer regions
+Step 2. DADA2: filter and merge reads using DADA2 
+  - using "1_sequence_filtering.Rmd"
+  - outputs include: 
+    *track.csv: documents input vs output read count per replicate through DADA2
+    *seqtab.csv: ASV by replicate table 
+    *myasvs.fasta: ASV sequences 
+    *ASVtable.csv: ASV by replicate table (using short ASV# headers)
+    *asv_id_table.csv: ASV id and sequence  
+  
+Step 3. create hashing for SKQ2023 and SKQ2024 datasets 
+  - using "2_hashing.Rmd"
+  - "hash_table.csv" includes read counts x hash 
 
-iterate over all elements in the above array:   
-for i in ${NAMELIST}; do
-   cutadapt --discard-untrimmed -g CGTGCCAGCCACCGCG -G GGGTATCTAATCCYAGTTTG -o trimmed/${i}_R1.fastq.gz -p trimmed/${i}_R2.fastq.gz "$DATA/${i}_L001_R1_001.fastq.gz" "$DATA/${i}_L001_R2_001.fastq.gz";
-done
+## 3. taxonomic assignment
 
-### filter and merge reads using DADA2 
-- See "1_sequence_filtering.Rmd"
-- "output/track.csv" documents input vs output read count per replicate through DADA2 
-
-## 3. taxonomic assignment 
-- Ran blastn.sh on SEDNA using NCBI nt database (pulled on Jul 11, 2024) as reference and -perc_identity 96 -qcov_hsp_perc 98
-- Output is "output/blastn_taxlineage.txt"
-- filtered taxonomic assignments using "2_taxonomic_assignment_blastn.Rmd"
-
-## 4. post asv curation 
-ran "3_lulu.Rmd" for post asv curation. this reduces the number of ASVs by identifying ASVs that likely sequencing errors of more abundant ASVs and merges them.  
-## 5. joined taxonomic assignments to asv table  
-ran "4_taxon_summary.Rmd" to merge taxonomic assignment to asv table and generate some basis summary metrics and figures 
+Step 1. perform taxonomic assignment using MIDORI2 database
+conda activate cutadptenv
+blastn -query output/combined/conv_file.fasta \
+       -db /Users/kimberly.ledger/Documents/metaprobes_BeringSea2024/MIDORI2_UNIQ_NUC_GB267_srRNA_BLAST_db/MIDORI2_UNIQ_NUC_GB267_srRNA_BLAST_db \
+       -out output/combined/midori2_blastnresults \
+       -perc_identity 96 -qcov_hsp_perc 100 \
+       -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore sscinames staxids" \
+       -num_threads 10
+       
+Step 2. filter/curate taxonomic assignments 
+  - using "3_taxonomic_assignment_MIDORI2.Rmd"

@@ -1,0 +1,126 @@
+---
+title: "create hashing"
+output: html_document
+date: "2026-11-24"
+---
+
+```{r}
+library(here)
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(digest)
+library(tibble)
+library(readr)
+library(seqinr)
+```
+
+load ASV tables 
+```{r}
+skq23 <- read.csv(here("output/SKQ2023/seqtab.csv"))
+skq24 <- read.csv(here("output/SKQ2024/seqtab.csv"))
+```
+
+generate hash keys - skq2023
+```{r}
+# Extract ASV sequences from column names
+Sequences <- colnames(skq23)[-1]
+
+# Generate SHA1 hashes
+Hashes <- map_chr(Sequences, ~ digest(.x, algo = "sha1", serialize = FALSE))
+
+# Create conversion table
+conv_table <- tibble(Hash = Hashes, Sequence = Sequences)
+
+# Save conversion table
+write.csv(conv_table, here("output/SKQ2023/conv_file.csv"))
+
+# Export FASTA file
+write.fasta(sequences = as.list(conv_table$Sequence), names = as.list(conv_table$Hash), file.out = here("output/SKQ2023/conv_file.fasta"))
+```
+
+reshape and join hash keys to ASV table, export 
+```{r}
+sample.df <- skq23 %>%
+  rename(Sample_name = X) %>%
+  mutate(Label = "MV1") %>%
+  relocate(Label, .after = Sample_name)
+
+#pivot
+current_asv <- sample.df %>%
+  pivot_longer(
+    cols = -c(Sample_name, Label),
+    names_to = "Sequence",
+    values_to = "nReads") %>%
+  filter(nReads > 0)
+
+#join hash keys
+current_asv <- current_asv %>%
+  left_join(conv_table, by = "Sequence") %>%
+  select(Sample_name, Label, Hash, nReads)
+
+#export 
+write_csv(current_asv, here("output/SKQ2023/hash_table.csv"))
+```
+
+generate hash keys - skq2024
+```{r}
+# Extract ASV sequences from column names
+Sequences <- colnames(skq24)[-1]
+
+# Generate SHA1 hashes
+Hashes <- map_chr(Sequences, ~ digest(.x, algo = "sha1", serialize = FALSE))
+
+# Create conversion table
+conv_table <- tibble(Hash = Hashes, Sequence = Sequences)
+
+# Save conversion table
+write.csv(conv_table, here("output/SKQ2024/conv_file.csv"))
+
+# Export FASTA file
+write.fasta(sequences = as.list(conv_table$Sequence), names = as.list(conv_table$Hash), file.out = here("output/SKQ2024/conv_file.fasta"))
+```
+
+reshape and join hash keys to ASV table, export 
+```{r}
+sample.df <- skq24 %>%
+  rename(Sample_name = X) %>%
+  mutate(Label = "MV1") %>%
+  relocate(Label, .after = Sample_name)
+
+#pivot
+current_asv <- sample.df %>%
+  pivot_longer(
+    cols = -c(Sample_name, Label),
+    names_to = "Sequence",
+    values_to = "nReads") %>%
+  filter(nReads > 0)
+
+#join hash keys
+current_asv <- current_asv %>%
+  left_join(conv_table, by = "Sequence") %>%
+  select(Sample_name, Label, Hash, nReads)
+
+#export 
+write_csv(current_asv, here("output/SKQ2024/hash_table.csv"))
+```
+
+create a single fasta file with hash keys 
+```{r}
+skq23_conv <- read.csv(here("output/SKQ2023/conv_file.csv")) %>% select(!X)
+skq24_conv <- read.csv(here("output/SKQ2024/conv_file.csv")) %>% select(!X)
+
+skq_conv <- skq23_conv %>%
+  bind_rows(skq24_conv) %>%
+  distinct()
+
+nrow(skq23_conv) + nrow(skq24_conv) - nrow(skq_conv)
+
+# Save conversion table
+write.csv(skq_conv, here("output/combined/conv_file.csv"))
+
+# Export FASTA file
+write.fasta(sequences = as.list(skq_conv$Sequence), names = as.list(skq_conv$Hash), file.out = here("output/combined/conv_file.fasta"))
+```
+

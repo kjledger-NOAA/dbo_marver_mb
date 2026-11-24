@@ -12,9 +12,11 @@ knitr::opts_chunk$set(echo = TRUE)
 
 DADA2 processing of trimmed reads (i.e. primer sequences already removed)
 
-## access Rstudio on the VM 
+## access Rstudio on the VM - ran on VM for 2023 samples
 * access the Rstudio server here: http://161.55.97.134:8787/
 * Type in username and pw associated with VM
+
+## ran locally for 2024 samples
 
 load packages
 ```{r, warning=FALSE}
@@ -28,7 +30,8 @@ when running this code here are the only things that need to be customized
 
 name file path and check correct files are there - UPDATE FILE PATH DEPENDING ON DATASET - this should point to the trimmed folder
 ```{r}
-path <- "/genetics/edna/rawdata/20250423_DBO23_marver/trimmed/"
+#path <- "/genetics/edna/rawdata/20250423_DBO23_marver/trimmed/"
+path <- "20260629_DBOMarVer2024/trimmed/"
 head(list.files(path))
 ```
 
@@ -47,12 +50,12 @@ sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
 
 visualize quality of forward reads 
 ```{r, warning=FALSE}
-plotQualityProfile(fnFs[1:2])
+plotQualityProfile(fnFs[1:4])
 ```
 
 visualize quality of reverse reads
 ```{r, warning=FALSE}
-plotQualityProfile(fnRs[1:2])
+plotQualityProfile(fnRs[1:4])
 ```
 
 
@@ -161,7 +164,7 @@ head(track)
 
 export dada2 filtering summary 
 ```{r}
-out_path <- file.path("/home/kimberly.ledger/dbo_marver_mb/outputs")
+out_path <- file.path("/Users/kimberly.ledger/Documents/dbo_marver_mb/outputs_2024/")
 
 write.csv(track, file = file.path(out_path, "track.csv"))
 ```
